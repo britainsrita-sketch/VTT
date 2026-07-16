@@ -1,39 +1,69 @@
 import os
 import sys
 import logging
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+import sqlite3
+from telegram.ext import ApplicationBuilder, CommandHandler
 
-# 1. Force logs to show up immediately in Railway
+# Logging setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     stream=sys.stdout
 )
 
-async def start(update, context):
-    await update.message.reply_text("Bot is online and ready!")
+# --- Database Functions ---
+def init_db():
+    conn = sqlite3.connect("archive.db")
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS archive 
+                      (id INTEGER PRIMARY KEY, category TEXT, content TEXT)''')
+    conn.commit()
+    conn.close()
 
-async def echo(update, context):
-    # This will reply to any text message
-    await update.message.reply_text(f"You said: {update.message.text}")
+# --- Bot Commands ---
+async def start(update, context):
+    await update.message.reply_text("QuickStudy Archive is ready! Use /save [category] [text] to archive, and /view [category] to see your saved items.")
+
+async def save(update, context):
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /save [category] [content]")
+        return
+    category = context.args[0]
+    content = " ".join(context.args[1:])
+    
+    conn = sqlite3.connect("archive.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO archive (category, content) VALUES (?, ?)", (category, content))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(f"✅ Saved to *{category}*!", parse_mode='Markdown')
+
+async def view(update, context):
+    if not context.args:
+        await update.message.reply_text("Usage: /view [category]")
+        return
+    category = context.args[0]
+    
+    conn = sqlite3.connect("archive.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT content FROM archive WHERE category = ?", (category,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    if rows:
+        items = "\n".join([f"• {row[0]}" for row in rows])
+        await update.message.reply_text(f"📁 *{category.upper()}* items:\n\n{items}", parse_mode='Markdown')
+    else:
+        await update.message.reply_text(f"No items found in {category}.")
 
 if __name__ == '__main__':
-    # 2. Get token from Railway Variable
+    init_db()
     token = os.environ.get("TELEGRAM_TOKEN")
-    
-    if not token:
-        logging.error("TELEGRAM_TOKEN is missing! Please set it in Railway Variables.")
-        sys.exit(1)
-
-    logging.info("Starting bot...")
-    
-    # 3. Build application
     app = ApplicationBuilder().token(token).build()
     
-    # 4. Add handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
+    app.add_handler(CommandHandler("save", save))
+    app.add_handler(CommandHandler("view", view))
     
-    # 5. Run with polling
-    logging.info("Bot is polling for updates...")
     app.run_polling()
