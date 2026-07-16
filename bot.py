@@ -1,34 +1,39 @@
 import os
+import sys
 import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-from database import init_db, save_item, get_items
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
-# Initialize database on startup
-init_db()
+# 1. Force logs to show up immediately in Railway
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    stream=sys.stdout
+)
 
-async def save(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /save [category] [link/text]")
-        return
-    category = context.args[0]
-    content = " ".join(context.args[1:])
-    save_item(category, content)
-    await update.message.reply_text(f"Saved to {category}!")
+async def start(update, context):
+    await update.message.reply_text("Bot is online and ready!")
 
-async def view(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /view [category]")
-        return
-    category = context.args[0]
-    items = get_items(category)
-    if items:
-        await update.message.reply_text(f"Items in {category}:\n" + "\n".join(items))
-    else:
-        await update.message.reply_text("No items found in this category.")
+async def echo(update, context):
+    # This will reply to any text message
+    await update.message.reply_text(f"You said: {update.message.text}")
 
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(os.environ.get("TELEGRAM_TOKEN")).build()
-    app.add_handler(CommandHandler("save", save))
-    app.add_handler(CommandHandler("view", view))
+    # 2. Get token from Railway Variable
+    token = os.environ.get("TELEGRAM_TOKEN")
+    
+    if not token:
+        logging.error("TELEGRAM_TOKEN is missing! Please set it in Railway Variables.")
+        sys.exit(1)
+
+    logging.info("Starting bot...")
+    
+    # 3. Build application
+    app = ApplicationBuilder().token(token).build()
+    
+    # 4. Add handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
+    
+    # 5. Run with polling
+    logging.info("Bot is polling for updates...")
     app.run_polling()
